@@ -1,0 +1,24 @@
+{
+  "name": "rate-limiter-gateway",
+  "version": "1.0.0",
+  "description": "Distributed rate-limiting API gateway with pluggable algorithms (token bucket, sliding window log, sliding window counter), Redis-backed shared state, and MySQL-backed API key management.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/limiters.test.js",
+    "migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1",
+    "mysql2": "^3.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
