@@ -32,7 +32,8 @@ router.post("/register", async (req, res) => {
     if (err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ error: "email already registered" });
     }
-    console.error("[admin/register] error:", err.message);
+    console.error("[admin/register] FULL ERROR");
+console.error(err);
     return res.status(500).json({ error: "registration failed" });
   }
 });
