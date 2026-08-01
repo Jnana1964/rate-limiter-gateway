@@ -24,3 +24,11 @@ app.use((err, req, res, next) => {
 app.listen(config.port, () => {
   console.log(`rate-limiter-gateway listening on port ${config.port}`);
 });
+app.get("/", (req, res) => {
+  res.json({
+    project: "Rate Limiter Gateway",
+    status: "Running",
+    version: "1.0.0",
+    health: "/health"
+  });
+});
