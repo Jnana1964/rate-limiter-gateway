@@ -1,34 +1,62 @@
 const express = require("express");
 const config = require("./config");
+
 const adminRoutes = require("./routes/admin");
 const gatewayRoutes = require("./routes/gateway");
 
 const app = express();
+
+// Middleware
 app.use(express.json());
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: Date.now() });
-});
-
-app.use("/admin", adminRoutes);
-app.use("/gateway", gatewayRoutes);
-
-// Centralized error handler - anything that throws synchronously or calls
-// next(err) lands here instead of crashing the process or leaking a stack
-// trace to the client.
-app.use((err, req, res, next) => {
-  console.error("[unhandled]", err);
-  res.status(500).json({ error: "internal server error" });
-});
-
-app.listen(config.port, () => {
-  console.log(`rate-limiter-gateway listening on port ${config.port}`);
-});
+// ==========================
+// Root Route
+// ==========================
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     project: "Rate Limiter Gateway",
     status: "Running",
     version: "1.0.0",
-    health: "/health"
+    message: "Welcome to the Rate Limiter Gateway API",
+    endpoints: {
+      health: "/health",
+      gateway: "/gateway",
+      admin: "/admin"
+    }
   });
+});
+
+// ==========================
+// Health Check
+// ==========================
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ==========================
+// Routes
+// ==========================
+app.use("/admin", adminRoutes);
+app.use("/gateway", gatewayRoutes);
+
+// ==========================
+// Global Error Handler
+// ==========================
+app.use((err, req, res, next) => {
+  console.error("[ERROR]", err);
+
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Internal Server Error"
+  });
+});
+
+// ==========================
+// Start Server
+// ==========================
+app.listen(config.port, "0.0.0.0", () => {
+  console.log(`🚀 Rate Limiter Gateway running on port ${config.port}`);
 });
