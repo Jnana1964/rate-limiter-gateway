@@ -1,4 +1,25 @@
-# Rate Limiter Gateway
+<div align="center">
+
+# 🚦 Rate Limiter Gateway
+
+**Redis-backed API Rate Limiting, Built for Correctness Under Concurrency**
+
+Token Bucket → Sliding Window Log → Sliding Window Counter → Atomic Redis Lua Scripts
+
+![Status](https://img.shields.io/badge/status-deployed-brightgreen)
+![Node.js](https://img.shields.io/badge/Node.js-18+-339933?logo=node.js&logoColor=white)
+![Express](https://img.shields.io/badge/Express-black?logo=express)
+![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white)
+![JWT](https://img.shields.io/badge/Auth-JWT-black)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-6%2F6%20passing-brightgreen)
+
+**Live:** [rate-limiter-gateway-production.up.railway.app](https://rate-limiter-gateway-production.up.railway.app/health)
+
+</div>
+
+---
 
 A Redis-backed rate-limiting API gateway with three interchangeable algorithms (token
 bucket, sliding window log, sliding window counter), MySQL-backed API key management,
@@ -6,9 +27,6 @@ and JWT-authenticated admin routes.
 
 Built to explore a real infrastructure problem — not a CRUD app — with the specific
 goal of demonstrating correctness under concurrency, not just a working demo.
-
-**Live:** https://rate-limiter-gateway-production.up.railway.app/health
-**Source:** this repository
 
 ## What this is, honestly
 
