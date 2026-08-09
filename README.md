@@ -10,17 +10,6 @@ goal of demonstrating correctness under concurrency, not just a working demo.
 **Live:** https://rate-limiter-gateway-production.up.railway.app/health
 **Source:** this repository
 
-## 👤 Author
-
-<div align="center">
-
-**Bollu Jnana Keerthana**
-Computer Science Engineering · SRM University
-
-[GitHub](https://github.com/Jnana1964) · [LinkedIn](https://www.linkedin.com/in/jnana-keerthana-1906jk)
-
-</div>
-
 ## What this is, honestly
 
 This is a rate limiter with Redis-backed shared state — currently running as a
@@ -216,3 +205,14 @@ sql/
 None of the above is disqualifying for what this project is — an infrastructure
 piece built to demonstrate correctness under concurrency. It's disqualifying only
 if the README pretended these gaps didn't exist.
+
+## 👤 Author
+
+<div align="center">
+
+**Bollu Jnana Keerthana**
+Computer Science Engineering · SRM University
+
+[GitHub](https://github.com/Jnana1964) · [LinkedIn](https://www.linkedin.com/in/jnana-keerthana-1906jk)
+
+</div>
