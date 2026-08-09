@@ -1,14 +1,26 @@
-Here's the full content — copy everything below into a new `README.md` file in your project root.
-
-```markdown
 # Rate Limiter Gateway
 
-A distributed, Redis-backed rate-limiting API gateway with three interchangeable
-algorithms (token bucket, sliding window log, sliding window counter), MySQL-backed
-API key management, and JWT-authenticated admin routes.
+A Redis-backed rate-limiting API gateway with three interchangeable algorithms (token
+bucket, sliding window log, sliding window counter), MySQL-backed API key management,
+and JWT-authenticated admin routes.
 
 Built to explore a real infrastructure problem — not a CRUD app — with the specific
 goal of demonstrating correctness under concurrency, not just a working demo.
+
+**Live:** https://rate-limiter-gateway-production.up.railway.app/health
+**Source:** this repository
+
+## What this is, honestly
+
+This is a rate limiter with Redis-backed shared state — currently running as a
+**single gateway instance** talking to a **single Redis instance and a single MySQL
+instance**. It is not, today, a distributed multi-node system, and this README won't
+claim otherwise. What it *does* demonstrate is the piece that would let it become
+distributed: the state that matters (the counters) lives in Redis, not in the
+process's memory, so multiple instances of this same app *could* share it correctly.
+That claim is proven in the concurrency tests below. Actually running multiple
+instances behind a load balancer and proving the atomicity holds across them is a
+real next step, not something already done — see "Honest scope notes."
 
 ## Why this exists
 
@@ -18,8 +30,8 @@ built-in throttling for exactly this reason — one misbehaving client shouldn't
 able to degrade service for everyone else, and usage tiers need real enforcement.
 
 This project implements that piece from scratch: three real algorithms, atomic
-Redis operations to make them safe across multiple server instances, and a small
-gateway to prove it actually gates traffic to something behind it.
+Redis operations to make the concurrency-safety claim actually true, and a small
+gateway to prove it gates real traffic.
 
 ## Architecture
 
@@ -32,7 +44,7 @@ Express middleware (rateLimit.js)
   ├─► MySQL  — durable API key config (algorithm, limit, window)
   │            cached in-process for 10s to avoid a DB hit per request
   │
-  └─► Redis  — ephemeral rate-limit counters, checked via atomic Lua scripts
+  └─► Redis  — rate-limit counters, checked via atomic Lua scripts
                (token bucket / sliding window log / sliding window counter)
   │
   ▼
@@ -40,10 +52,10 @@ Express middleware (rateLimit.js)
 ```
 
 **Why split MySQL and Redis this way:** API key configuration (who has what limit)
-needs to survive a restart — that's MySQL. The actual request counters don't need
-to survive a restart, and need to be fast and shared across every instance of the
-app — that's Redis. Losing Redis data just resets everyone's counters; losing MySQL
-data loses your users.
+needs to survive a restart — that's MySQL. The request counters don't need to
+survive a restart, and need to be fast and shareable across multiple instances of
+the app — that's Redis. Losing Redis data just resets everyone's counters; losing
+MySQL data loses the actual user/key records.
 
 ## The three algorithms
 
@@ -53,32 +65,41 @@ data loses your users.
 | **Sliding window log** | Stores a timestamp per request in a Redis sorted set, counts entries in the trailing window | Exactly accurate, no boundary bugs; costs more memory (one entry per request) |
 | **Sliding window counter** | Approximates the sliding window using two fixed-window counters, weighted by overlap | Cheap (O(1) storage per key); an approximation, not exact — worth saying out loud, not hiding |
 
-All three are implemented as **atomic Redis Lua scripts**, not
-read-then-write JavaScript. Without that, two concurrent requests can both read the
-same "under limit" state and both get allowed past the limit — a real race
-condition, not a theoretical one. This is validated directly in `tests/limiters.test.js`,
-which fires 50 concurrent requests at each algorithm and asserts the allowed count
-never exceeds the configured limit.
+All three are implemented as **atomic Redis Lua scripts**, not read-then-write
+JavaScript. Without that, two concurrent requests can both read the same
+"under limit" state and both get allowed past the limit — a real race condition,
+not a theoretical one. This is what `tests/limiters.test.js` actually checks: it
+fires 50 concurrent requests at each algorithm and asserts the allowed count never
+exceeds the configured limit, using real Redis, not a mock.
 
-A real design decision worth knowing, not an oversight: if Redis becomes
-unreachable, the middleware **fails open** (`src/middleware/rateLimit.js`) —
-requests are allowed through rather than the whole API going down. That's a
-deliberate availability-over-strict-enforcement tradeoff; the opposite choice
-(fail-closed) is equally defensible depending on the use case, and worth discussing
-either way.
+A real design decision, not an oversight: if Redis becomes unreachable, the
+middleware **fails open** (`src/middleware/rateLimit.js`) — requests are allowed
+through rather than the whole API going down. That's a deliberate
+availability-over-strict-enforcement tradeoff. Fail-closed is equally defensible
+depending on the use case; this codebase has not tested what actually happens
+when Redis dies mid-load — see "Honest scope notes."
 
-## Verified results (not projected — actually run)
+## Verified results — every number below was actually run, not projected
 
 - **6/6 automated tests pass**, including two concurrency tests firing 50
-  simultaneous requests per algorithm and confirming no over-allowance.
-- **All three algorithms independently verified end-to-end**: configured with a
-  10-request/60s limit, each correctly allowed exactly 10 requests and returned
-  `429` on requests 11 through 15.
-- **Load tested with k6**: ~1,300 requests/second sustained over 2.5 minutes
+  simultaneous requests per algorithm against real Redis and confirming no
+  over-allowance.
+- **All three algorithms independently verified end-to-end** against the live
+  deployment: configured with a 10-request/60s limit, each correctly allowed
+  exactly 10 requests and returned `429` on requests 11 through 15.
+- **Load tested with k6**: 1,300 requests/second sustained over 2m30s
   (197,402 total requests), p95 latency of 107ms, zero crashes or malformed
-  responses. The overwhelming majority of requests correctly received `429`
-  once traffic exceeded the configured 10/min key limit — that's the rate
-  limiter working as intended, not a system failure.
+  responses across the whole run.
+  - Note on reading this number: k6's default `http_req_failed` metric flags any
+    non-2xx response, which was ~99.98% in this run — that is *not* a system
+    failure. The test key was capped at 10 requests/minute while the test fired
+    over a thousand requests/second, so the overwhelming majority correctly
+    received `429`. The metric that actually matters is `checks_succeeded: 100%`
+    — every request got a valid, well-formed response, and the gateway never
+    crashed or hung under sustained heavy load.
+- **Deployed and re-verified live** on Railway (not just locally): registration,
+  login, JWT auth, key creation, and the same 10-allowed/5-blocked pattern all
+  confirmed against the production URL above.
 
 ## Running it locally
 
@@ -134,45 +155,53 @@ src/
   config.js              # env var loading, fails fast if required vars missing
   server.js              # Express app entrypoint
   db/
-    redis.js               # shared Redis connection
-    mysql.js                # MySQL connection pool (runtime queries)
-    migrate.js             # one-off connection with multipleStatements, applies schema.sql
+    redis.js              # shared Redis connection
+    mysql.js               # MySQL connection pool (runtime queries)
+    migrate.js            # one-off connection with multipleStatements, applies schema.sql
   limiters/
-    tokenBucket.js          # atomic Lua-script implementation
-    slidingWindowLog.js     # atomic Lua-script implementation
+    tokenBucket.js         # atomic Lua-script implementation
+    slidingWindowLog.js    # atomic Lua-script implementation
     slidingWindowCounter.js # atomic Lua-script implementation
-    index.js                # dispatches to the configured algorithm
+    index.js               # dispatches to the configured algorithm
   middleware/
-    rateLimit.js            # looks up key config, checks limit, sets headers
-    auth.js                 # JWT verification for admin routes
+    rateLimit.js           # looks up key config, checks limit, sets headers
+    auth.js                # JWT verification for admin routes
   routes/
-    admin.js                # register/login/create-key/list-keys
-    gateway.js               # example endpoints protected by the rate limiter
+    admin.js               # register/login/create-key/list-keys
+    gateway.js              # example endpoints protected by the rate limiter
 tests/
-  limiters.test.js         # integration tests against real Redis, incl. concurrency checks
+  limiters.test.js        # integration tests against real Redis, incl. concurrency checks
 loadtest/
-  k6-script.js             # ramping load test script
+  k6-script.js            # ramping load test script
 sql/
-  schema.sql               # users + api_keys tables
+  schema.sql              # users + api_keys tables
 ```
 
-## Honest scope notes
+## Honest scope notes — what this project does not do yet
 
-- This is an intern-level infrastructure project, not a production system. It has
-  no horizontal-scaling test beyond a single app instance, no observability/metrics
-  export, and no admin UI.
-- The sliding window counter is an approximation by design — it will occasionally
-  allow a request slightly over or under the exact configured limit near window
-  boundaries. That's expected behavior, not a bug.
-- The in-process API key config cache (10s TTL) means a key edited in the database
-  can take up to 10 seconds to reflect in enforcement. Acceptable for this scope;
-  a production system would likely use Redis pub/sub to invalidate the cache
-  immediately instead.
-```
+- **Not actually distributed.** One gateway process, one Redis instance, one MySQL
+  instance. The design would support multiple gateway instances sharing the same
+  Redis state correctly (that's what the atomic Lua scripts and the concurrency
+  tests prove), but that has not been run — no load balancer, no second instance,
+  no test proving correctness *across* instances rather than within one.
+- **No chaos/failure testing done.** The fail-open behavior when Redis is
+  unreachable is implemented and described above, but never actually exercised —
+  nobody has killed the Redis connection mid-load-test and watched what happens.
+  That's a real gap between "the code does this" and "this was observed to work."
+- **No CI/CD.** Tests are run manually, locally. There is no pipeline running them
+  automatically on push, no automated build/deploy.
+- **No monitoring or metrics export.** No Prometheus, no CloudWatch, no dashboard
+  showing request rate, error rate, or Redis latency over time in production.
+  Problems would currently be found by manually checking logs, not by an alert.
+- **No admin UI.** Key management is API-only.
+- **The sliding window counter is an approximation by design** — it will
+  occasionally allow a request slightly over or under the exact configured limit
+  near window boundaries. Expected behavior, not a bug.
+- **The in-process API key config cache (10s TTL)** means a key edited in the
+  database can take up to 10 seconds to reflect in enforcement. Acceptable for
+  this scope; a production system would likely use Redis pub/sub to invalidate
+  the cache immediately instead.
 
-Save that as `README.md` in your project root, then:
-```powershell
-git add README.md
-git commit -m "Add README with architecture, verified results, and setup instructions"
-git push
-```
+None of the above is disqualifying for what this project is — an infrastructure
+piece built to demonstrate correctness under concurrency. It's disqualifying only
+if the README pretended these gaps didn't exist.
