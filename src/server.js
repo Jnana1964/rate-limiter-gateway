@@ -1,5 +1,6 @@
 const express = require("express");
 const config = require("./config");
+const path = require("path");
 
 const adminRoutes = require("./routes/admin");
 const gatewayRoutes = require("./routes/gateway");
@@ -8,6 +9,11 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+
+// Live demo page
+app.get("/demo", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "demo.html"));
+});
 
 // ==========================
 // Root Route
