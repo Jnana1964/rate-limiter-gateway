@@ -45,7 +45,7 @@ Requests inside the limit return `200`; the rest return `429` with a `Retry-Afte
 The demo page talks to the same API described below.
 
 <!-- Add your screenshot after uploading it to the repo as docs/demo.png -->
-![Live demo: allowed (200) and blocked (429) requests](docs/demo.png)
+![Live demo: allowed (200) and blocked (429) requests](demo.png)
 
 ## What this is, honestly
 
