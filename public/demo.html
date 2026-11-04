@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate Limiter Gateway – Live Demo</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --line:#2a313c; --fg:#e6edf3; --dim:#8b949e;
+    --ok:#3fb950; --bad:#f85149; --accent:#58a6ff; --warn:#d29922;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#ffffff; --line:#d0d7de; --fg:#1f2328; --dim:#59636e; --ok:#1a7f37; --bad:#cf222e; --accent:#0969da; --warn:#9a6700; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:26px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:16px; margin:0 0 10px; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--dim); }
+  select, input { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:9px 10px; font-size:15px; min-width:150px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 16px; font-size:15px; cursor:pointer; font-weight:600; }
+  button.secondary { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .note { font-size:13px; color:var(--dim); margin-top:8px; }
+  .explain { font-size:14px; color:var(--dim); margin:0; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .stat { text-align:center; padding:12px; border:1px solid var(--line); border-radius:10px; }
+  .stat b { display:block; font-size:28px; }
+  .stat span { font-size:13px; color:var(--dim); }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .gauge { height:12px; background:var(--bg); border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-top:6px; }
+  .gauge > div { height:100%; width:0%; background:var(--ok); transition:width .25s; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-weight:700; font-size:13px; }
+  .badge.s200 { background:rgba(63,185,80,.18); color:var(--ok); }
+  .badge.s429 { background:rgba(248,81,73,.18); color:var(--bad); }
+  .badge.sx { background:rgba(210,153,34,.18); color:var(--warn); }
+  #status { min-height:22px; font-size:14px; }
+  .hidden { display:none; }
+  a { color:var(--accent); }
+  @media (max-width:560px){ .stats{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rate Limiter Gateway: live demo</h1>
+  <p class="sub">Send requests to a real Redis-backed rate limiter and watch it allow (200) or block (429) them.</p>
+
+  <div class="card">
+    <h2>1. Pick a rule and create a demo key</h2>
+    <div class="row">
+      <label>Algorithm
+        <select id="algo">
+          <option value="token_bucket">Token bucket</option>
+          <option value="sliding_window_log">Sliding window log</option>
+          <option value="sliding_window_counter">Sliding window counter</option>
+        </select>
+      </label>
+      <label>Requests allowed
+        <input id="limit" type="number" min="1" max="50" value="5">
+      </label>
+      <label>Per (seconds)
+        <input id="window" type="number" min="1" max="120" value="10">
+      </label>
+      <button id="create">Create demo key</button>
+    </div>
+    <p class="explain" id="explain" style="margin-top:10px"></p>
+    <p class="note">The service runs on free hosting, so the first click after a quiet period can take up to a minute while it wakes up.</p>
+    <div id="status" role="status"></div>
+  </div>
+
+  <div id="play" class="card hidden">
+    <h2>2. Send requests</h2>
+    <div class="row">
+      <button id="one">Send 1 request</button>
+      <button id="burst" class="secondary">Send 10 at once</button>
+      <button id="auto" class="secondary">Auto: 1 per second</button>
+      <button id="reset" class="secondary">Clear log</button>
+    </div>
+    <div style="margin-top:14px" class="stats">
+      <div class="stat"><b class="ok" id="allowed">0</b><span>allowed (200)</span></div>
+      <div class="stat"><b class="bad" id="blocked">0</b><span>blocked (429)</span></div>
+      <div class="stat"><b id="remaining">–</b><span>remaining in window</span>
+        <div class="gauge"><div id="bar"></div></div></div>
+    </div>
+  </div>
+
+  <div id="logCard" class="card hidden">
+    <h2>Request log</h2>
+    <table>
+      <thead><tr><th>#</th><th>Time</th><th>Status</th><th>Remaining</th><th>Retry after</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+  </div>
+
+  <p class="note">Source code and tests: <a href="https://github.com/Jnana1964/rate-limiter-gateway">github.com/Jnana1964/rate-limiter-gateway</a>. Load test: about 1,300 requests per second over 197,402 requests, p95 latency 107 ms.</p>
+</div>
+
+<script>
+(function () {
+  var EXPLAIN = {
+    token_bucket: 'Token bucket: you start with a full bucket of tokens. Each request uses one and tokens refill slowly, so short bursts are allowed up to the bucket size.',
+    sliding_window_log: 'Sliding window log: remembers the exact time of every request in the last window. It is the most accurate, but it stores one entry per request.',
+    sliding_window_counter: 'Sliding window counter: blends the counts of the current and previous window. It uses very little memory and is slightly approximate near window edges.'
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var apiKey = null, limit = 0, count = 0, allowed = 0, blocked = 0, timer = null;
+
+  function setStatus(msg, bad) { var s = $('status'); s.textContent = msg || ''; s.style.color = bad ? 'var(--bad)' : 'var(--dim)'; }
+  function updateExplain() { $('explain').textContent = EXPLAIN[$('algo').value]; }
+  $('algo').addEventListener('change', updateExplain); updateExplain();
+
+  function rand(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (x) { return ('0' + x.toString(16)).slice(-2); }).join(''); }
+
+  function post(path, body, token) {
+    var h = { 'Content-Type': 'application/json' };
+    if (token) h.Authorization = 'Bearer ' + token;
+    return fetch(path, { method: 'POST', headers: h, body: JSON.stringify(body) }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || j.message || ('HTTP ' + r.status)); return j; });
+    });
+  }
+
+  $('create').addEventListener('click', function () {
+    var btn = $('create'); btn.disabled = true;
+    var l = parseInt($('limit').value, 10), w = parseInt($('window').value, 10);
+    if (!(l > 0) || !(w > 0)) { setStatus('Enter a positive number for both fields.', true); btn.disabled = false; return; }
+    setStatus('Creating a demo key (the service may be waking up)…');
+    var email = 'demo-' + rand(6) + '@example.com', pw = rand(10);
+    post('/admin/register', { email: email, password: pw })
+      .then(function () { return post('/admin/login', { email: email, password: pw }); })
+      .then(function (j) { return post('/admin/keys', { algorithm: $('algo').value, limit_per_window: l, window_seconds: w }, j.token); })
+      .then(function (j) {
+        apiKey = j.key; limit = l; count = 0; allowed = 0; blocked = 0;
+        $('log').innerHTML = ''; renderStats(null);
+        $('play').classList.remove('hidden'); $('logCard').classList.remove('hidden');
+        setStatus('Demo key ready: ' + l + ' requests per ' + w + ' seconds (' + $('algo').value.replace(/_/g, ' ') + ').');
+      })
+      .catch(function (e) { setStatus('Could not create a demo key: ' + e.message + '. If the service was asleep, wait a minute and try again.', true); })
+      .then(function () { btn.disabled = false; });
+  });
+
+  function renderStats(rem) {
+    $('allowed').textContent = allowed; $('blocked').textContent = blocked;
+    if (rem === null || rem === undefined || isNaN(rem)) { $('remaining').textContent = '–'; $('bar').style.width = '0%'; return; }
+    $('remaining').textContent = rem;
+    $('bar').style.width = Math.max(0, Math.min(100, rem / limit * 100)) + '%';
+    $('bar').style.background = rem === 0 ? 'var(--bad)' : 'var(--ok)';
+  }
+
+  function addRow(n, status, rem, retry) {
+    var tr = document.createElement('tr');
+    var cls = status === 200 ? 's200' : status === 429 ? 's429' : 'sx';
+    var label = status === 200 ? '200 allowed' : status === 429 ? '429 blocked' : (status || 'error');
+    tr.innerHTML = '<td>' + n + '</td><td>' + new Date().toLocaleTimeString() + '</td><td><span class="badge ' + cls + '">' + label + '</span></td><td>' + (rem == null ? '–' : rem) + '</td><td>' + (retry ? retry + ' s' : '–') + '</td>';
+    var body = $('log'); body.insertBefore(tr, body.firstChild);
+  }
+
+  function sendOne() {
+    if (!apiKey) return Promise.resolve();
+    var n = ++count;
+    return fetch('/gateway/ping', { headers: { 'x-api-key': apiKey } }).then(function (r) {
+      var rem = r.headers.get('X-RateLimit-Remaining'); rem = rem === null ? null : parseInt(rem, 10);
+      var retry = r.headers.get('Retry-After');
+      if (r.status === 200) allowed++; else if (r.status === 429) blocked++;
+      addRow(n, r.status, rem, retry); renderStats(rem);
+    }).catch(function () { addRow(n, 0, null, null); setStatus('Request failed. The service may be waking up; try again in a moment.', true); });
+  }
+
+  $('one').addEventListener('click', sendOne);
+  $('burst').addEventListener('click', function () { for (var i = 0; i < 10; i++) sendOne(); });
+  $('reset').addEventListener('click', function () { $('log').innerHTML = ''; count = 0; allowed = 0; blocked = 0; renderStats(null); });
+  $('auto').addEventListener('click', function () {
+    var b = $('auto');
+    if (timer) { clearInterval(timer); timer = null; b.textContent = 'Auto: 1 per second'; return; }
+    sendOne(); timer = setInterval(sendOne, 1000); b.textContent = 'Stop auto';
+  });
+})();
+</script>
+</body>
+</html>
